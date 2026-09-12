@@ -1,0 +1,16 @@
+domain,indicator,interpretation
+Socioeconomic disadvantage,low_income,Lower median household income
+Socioeconomic disadvantage,low_education,Lower percentage with a bachelor's degree
+Material hardship,food_insecurity,Higher prevalence of food insecurity
+Material hardship,food_stamps,Higher prevalence of food-stamp use
+Material hardship,housing_insecurity,Higher prevalence of housing insecurity
+Material hardship,transportation_barriers,Higher prevalence of transportation barriers
+Material hardship,utility_threat,Higher prevalence of utility shutoff threat
+Healthcare access,few_primary_care_physicians,Fewer primary-care physicians
+Healthcare access,few_mental_health_providers,Fewer mental-health providers
+Healthcare access,few_dentists,Fewer dentists
+Healthcare access,uninsured,Higher uninsured percentage
+Preventive resources,low_flu_vaccination,Lower flu-vaccination coverage
+Preventive resources,low_exercise_access,Lower access to exercise opportunities
+Preventive resources,poor_food_environment,Lower food-environment score
+Preventive resources,low_mammography_screening,Lower mammography-screening coverage

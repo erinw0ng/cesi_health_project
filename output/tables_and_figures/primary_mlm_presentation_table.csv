@@ -1,0 +1,45 @@
+Main Category,Subcategory,Outcome,Practice MLM-M1,Practice MLM-M2,Meaning MLM-M1,Meaning MLM-M2
+Behavioral Risks,Behavioral-Health Mortality,Drug Overdose Deaths,-0.08,-0.12***,0.02,-0.09
+Behavioral Risks,Behavioral-Health Mortality,Suicide Mortality,-0.06,-0.07,0.02,-0.03
+Behavioral Risks,Health-Risk Behaviors,Binge Drinking,0.01,0.01,-0.08***,-0.03
+Behavioral Risks,Health-Risk Behaviors,Current Cigarette Smoking,0.04,0.01,0.21***,0.03
+Behavioral Risks,Health-Risk Behaviors,Physical Inactivity,0.07**,0.04*,0.14***,-0.03
+Behavioral Risks,Health-Risk Behaviors,Short Sleep Duration,-0.04,-0.06**,0.23***,0.11***
+Behavioral Risks,Injury and Violence Mortality,Alcohol-Impaired Driving Deaths,0.02,0.02,0.01,0.03
+Behavioral Risks,Injury and Violence Mortality,Firearm Fatalities,-0.16***,-0.18***,0.24***,0.18***
+Behavioral Risks,Injury and Violence Mortality,Homicide Mortality,-0.21***,-0.24***,0.33***,0.27***
+Behavioral Risks,Injury and Violence Mortality,Injury Deaths,-0.11***,-0.14***,0.15***,0.02
+Behavioral Risks,Injury and Violence Mortality,Motor Vehicle Crash Deaths,0.07*,0.05,0.28***,0.17***
+Behavioral Risks,Premature Deaths and Reduced Longevity,Child Mortality,-0.08,-0.11***,0.34***,0.25***
+Behavioral Risks,Premature Deaths and Reduced Longevity,Infant Mortality,-0.19***,-0.23***,0.40***,0.31***
+Behavioral Risks,Premature Deaths and Reduced Longevity,Life Expectancy,-0.00,0.04,-0.25***,-0.07**
+Behavioral Risks,Premature Deaths and Reduced Longevity,Premature Age-Adjusted Mortality,-0.02,-0.06**,0.24***,0.07*
+Behavioral Risks,Premature Deaths and Reduced Longevity,Premature Death,-0.01,-0.05,0.22***,0.06
+Behavioral Risks,Sexual and Reproductive Risks,HIV Prevalence,-0.23***,-0.24***,0.14***,0.12***
+Behavioral Risks,Sexual and Reproductive Risks,Low Birth Weight,-0.15***,-0.16***,0.24***,0.19***
+Behavioral Risks,Sexual and Reproductive Risks,Sexually Transmitted Infections,-0.17***,-0.18***,0.22***,0.20***
+Behavioral Risks,Sexual and Reproductive Risks,Teen Births,0.09***,0.05,0.20***,0.04
+Subjective Wellbeing,Disability,Any Disability,0.03,0.01,0.12***,-0.04*
+Subjective Wellbeing,Disability,Cognitive Disability,0.07**,0.05**,0.11***,-0.07***
+Subjective Wellbeing,Disability,Hearing Disability,0.05,0.03,-0.02,-0.18***
+Subjective Wellbeing,Disability,Independent Living Disability,0.03,-0.00,0.16***,-0.02
+Subjective Wellbeing,Disability,Mobility Disability,0.01,-0.01,0.13***,-0.03
+Subjective Wellbeing,Disability,Self-care Disability,-0.02,-0.05**,0.13***,-0.04
+Subjective Wellbeing,Disability,Vision Disability,0.02,0.00,0.05*,-0.10***
+Subjective Wellbeing,Mental Health,Depression,0.00,-0.01,0.03,-0.05**
+Subjective Wellbeing,Mental Health,Frequent Mental Distress,0.03,0.01,0.18***,0.01
+Subjective Wellbeing,Social Connection and Support,Lack of Social/Emotional Support,0.01,-0.01,0.16***,0.06***
+Subjective Wellbeing,Social Connection and Support,Social Isolation,-0.02,-0.03,0.12***,0.01
+Subjective Wellbeing,Subjective Health,Frequent Physical Distress,0.05,0.02,0.10***,-0.09***
+Subjective Wellbeing,Subjective Health,Poor General Health,0.04,0.02,0.09***,-0.08***
+Chronic Health,Chronic Conditions,Arthritis,-0.05*,-0.06***,0.17***,0.06***
+Chronic Health,Chronic Conditions,COPD,0.02,-0.00,0.18***,0.02
+Chronic Health,Chronic Conditions,Cancer (non-skin) or Melanoma,-0.02,-0.02,-0.06***,-0.02
+Chronic Health,Chronic Conditions,Coronary Heart Disease,0.01,-0.02,0.08**,-0.09***
+Chronic Health,Chronic Conditions,Current Asthma,-0.03,-0.04,0.23***,0.11***
+Chronic Health,Chronic Conditions,Diabetes,-0.02,-0.04***,0.08***,-0.04*
+Chronic Health,Chronic Conditions,High Blood Pressure,-0.07***,-0.09***,0.21***,0.12***
+Chronic Health,Chronic Conditions,High Cholesterol,0.05*,0.04,0.02,-0.05
+Chronic Health,Chronic Conditions,Obesity,0.00,-0.02,0.22***,0.08***
+Chronic Health,Chronic Conditions,Stroke,-0.05,-0.07***,0.21***,0.06**
+Chronic Health,Oral Health,All Teeth Lost,-0.00,-0.03,0.20***,0.03

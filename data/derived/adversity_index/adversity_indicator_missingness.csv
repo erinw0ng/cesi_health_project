@@ -1,0 +1,16 @@
+indicator,n_missing,percent_missing
+low_income,60,1.8732438339057134
+low_education,59,1.8420231033406183
+food_insecurity,786,24.539494224164844
+food_stamps,786,24.539494224164844
+housing_insecurity,786,24.539494224164844
+transportation_barriers,786,24.539494224164844
+utility_threat,786,24.539494224164844
+few_primary_care_physicians,158,4.932875429285045
+few_mental_health_providers,163,5.088979082110521
+few_dentists,95,2.965969403684046
+uninsured,9,0.280986575085857
+low_flu_vaccination,27,0.842959725257571
+low_exercise_access,55,1.7171401810802374
+poor_food_environment,52,1.6234779893849516
+low_mammography_screening,31,0.9678426475179519

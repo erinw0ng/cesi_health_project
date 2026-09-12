@@ -1,0 +1,453 @@
+---
+title: "CESI and County Health Sensitivity Analyses"
+author: "Erin Wang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: readable
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = FALSE,
+  error = FALSE)
+
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+```
+
+This script is for sensitivity analysis.
+
+# Read in data
+
+```{r read-data}
+health_data <- read_csv(
+  "data/derived/health_analysis/county_health_analysis_long.csv",
+  col_types = cols(county_fips = col_character()),
+  show_col_types = FALSE)
+
+outcome_information <- health_data %>%
+  distinct(
+    source,
+    outcome_id,
+    outcome,
+    native_unit,
+    higher_value_interpretation)
+
+outcome_ids <- unique(health_data$outcome_id)
+
+cesi_variables <- c("practice_cesi", "meaning_cesi")
+
+```
+
+# Bivariate correlations
+
+These correlations are the unadjusted county-level associations.
+
+```{r correlations}
+# Store result for outcome-CESI 
+correlation_list <- list()
+result_number <- 1
+
+# Correlation
+for (selected_outcome in outcome_ids) {
+  for (cesi_variable in cesi_variables) {
+    correlation_data <- health_data %>%
+      filter(outcome_id == selected_outcome) %>%
+      transmute(
+        health = outcome_value,
+        cesi = .data[[cesi_variable]]) %>%
+      drop_na()
+
+    correlation_test <- cor.test(
+      correlation_data$cesi,
+      correlation_data$health)
+
+    correlation_list[[result_number]] <- tibble(
+      outcome_id = selected_outcome,
+      cesi_measure = cesi_variable,
+      r = unname(correlation_test$estimate),
+      p = correlation_test$p.value,
+      n = nrow(correlation_data))
+
+    result_number <- result_number + 1
+  }
+}
+
+correlation_results <- bind_rows(correlation_list) %>%
+  group_by(cesi_measure) %>%
+  mutate(p_holm = p.adjust(p, method = "holm")) %>%
+  ungroup()
+
+```
+
+# linear regressions and state fixed effects
+
+- The linear regressions did not include state-level clustering. 
+- The state fixed-effects model compares counties within the same state and uses standard errors clustered by state.
+
+```{r ols-and-state-fixed-effects}
+# Fit OLS and state fixed-effects models
+geographic_list <- list()
+result_number <- 1
+
+for (selected_outcome in outcome_ids) {
+  for (cesi_variable in cesi_variables) {
+    model_data <- health_data %>%
+      filter(outcome_id == selected_outcome) %>%
+      transmute(
+        state = factor(state),
+        health = outcome_value,
+        cesi = .data[[cesi_variable]],
+        adversity = adversity_domain_balanced,
+        population_density = log_population_density,
+        rurality = rural_urban_code,
+        age = county_age,
+        minority = percent_minority) %>%
+      drop_na() %>%
+      mutate(across(
+        c(health, cesi, adversity, population_density, rurality, age, minority),
+        ~ as.numeric(scale(.x))))
+
+# Fit linear regression
+    ols <- lm(
+      health ~ cesi + adversity + population_density + rurality + age +
+        minority,
+      data = model_data)
+
+# Adding state fixed effect
+    state_fe <- lm(
+      health ~ cesi + adversity + population_density + rurality + age +
+        minority + state,
+      data = model_data)
+
+    ols_coefficient <- coef(summary(ols))["cesi", ]
+
+# Cluster the fixed-effects model's standard errors by state because counties in the same state 
+    state_vcov <- sandwich::vcovCL(
+      state_fe,
+      cluster = ~ state,
+      type = "HC1")
+
+    state_beta <- coef(state_fe)["cesi"]
+    state_se <- sqrt(state_vcov["cesi", "cesi"])
+    state_t <- state_beta / state_se
+    state_p <- 2 * pt(
+      abs(state_t),
+      df = n_distinct(model_data$state) - 1,
+      lower.tail = FALSE)
+
+    geographic_list[[result_number]] <- tibble(
+      outcome_id = selected_outcome,
+      cesi_measure = cesi_variable,
+      model = c("OLS", "State fixed effects"),
+      beta = c(ols_coefficient[1], state_beta),
+      standard_error = c(ols_coefficient[2], state_se),
+      p = c(ols_coefficient[4], state_p),
+      n = nrow(model_data),
+      n_states = n_distinct(model_data$state))
+
+    result_number <- result_number + 1
+  }
+}
+
+# Adjust for p values
+geographic_results <- bind_rows(geographic_list) %>%
+  group_by(model, cesi_measure) %>%
+  mutate(p_holm = p.adjust(p, method = "holm")) %>%
+  ungroup()
+
+```
+
+# Separate within-state and between-state associations
+
+The county CESI score is separated into the state mean and each county's deviation from that mean. The within-state coefficient compares counties in the same state. The between-state coefficient compares state-average CESI levels.
+
+```{r within-between}
+within_between_list <- list()
+result_number <- 1
+
+for (selected_outcome in outcome_ids) {
+  for (cesi_variable in cesi_variables) {
+# Get the state means
+    state_means <- health_data %>%
+      distinct(county_fips, state, cesi = .data[[cesi_variable]]) %>%
+      filter(!is.na(cesi)) %>%
+      group_by(state) %>%
+      summarise(cesi_state_mean = mean(cesi), .groups = "drop")
+
+    model_data <- health_data %>%
+      filter(outcome_id == selected_outcome) %>%
+      transmute(
+        county_fips,
+        state,
+        health = outcome_value,
+        cesi = .data[[cesi_variable]],
+        adversity = adversity_domain_balanced,
+        population_density = log_population_density,
+        rurality = rural_urban_code,
+        age = county_age,
+        minority = percent_minority) %>%
+      left_join(state_means, by = "state") %>%
+      mutate(
+        cesi_within_state = cesi - cesi_state_mean,
+        state = factor(state)) %>%
+      drop_na() %>%
+      mutate(across(
+        c(
+          health, cesi_within_state, cesi_state_mean, adversity,
+          population_density, rurality, age, minority),
+        ~ as.numeric(scale(.x))))
+
+    model <- lmerTest::lmer(
+      health ~ cesi_within_state + cesi_state_mean + adversity +
+        population_density + rurality + age + minority + (1 | state), # state random intercept 
+      data = model_data,
+      REML = FALSE)
+
+    coefficient_table <- coef(summary(model))
+
+    within_between_list[[result_number]] <- tibble(
+      outcome_id = selected_outcome,
+      cesi_measure = cesi_variable,
+      effect = c("Within state", "Between states"),
+      beta = coefficient_table[
+        c("cesi_within_state", "cesi_state_mean"), 1],
+      standard_error = coefficient_table[
+        c("cesi_within_state", "cesi_state_mean"), 2],
+      p = coefficient_table[
+        c("cesi_within_state", "cesi_state_mean"), 5],
+      n = nrow(model_data),
+      n_states = n_distinct(model_data$state))
+
+    result_number <- result_number + 1
+  }
+}
+
+# Adjust for p values
+within_between_results <- bind_rows(within_between_list) %>%
+  group_by(effect, cesi_measure) %>%
+  mutate(p_holm = p.adjust(p, method = "holm")) %>%
+  ungroup()
+
+```
+
+# Joint Practice and Meaning CESI model
+
+This model estimates each CESI association while holding the other CESI measure constant.
+
+```{r joint-model}
+joint_list <- list()
+
+for (i in seq_along(outcome_ids)) {
+  selected_outcome <- outcome_ids[i]
+
+  model_data <- health_data %>%
+    filter(outcome_id == selected_outcome) %>%
+    transmute(
+      state = factor(state),
+      health = outcome_value,
+      practice = practice_cesi,
+      meaning = meaning_cesi,
+      adversity = adversity_domain_balanced,
+      population_density = log_population_density,
+      rurality = rural_urban_code,
+      age = county_age,
+      minority = percent_minority) %>%
+    drop_na() %>%
+    mutate(across(
+      c(
+        health, practice, meaning, adversity,
+        population_density, rurality, age, minority),
+      ~ as.numeric(scale(.x))))
+
+# M2 with both CESI
+  model <- lmerTest::lmer(
+    health ~ practice + meaning + adversity + population_density +
+      rurality + age + minority + (1 | state),
+    data = model_data,
+    REML = FALSE)
+
+  coefficient_table <- coef(summary(model))
+
+  joint_list[[i]] <- tibble(
+    outcome_id = selected_outcome,
+    cesi_measure = c("practice_cesi", "meaning_cesi"),
+    beta = coefficient_table[c("practice", "meaning"), 1],
+    standard_error = coefficient_table[c("practice", "meaning"), 2],
+    p = coefficient_table[c("practice", "meaning"), 5],
+    n = nrow(model_data),
+    n_states = n_distinct(model_data$state))
+}
+
+# Adjust for p values
+joint_results <- bind_rows(joint_list) %>%
+  group_by(cesi_measure) %>%
+  mutate(p_holm = p.adjust(p, method = "holm")) %>%
+  ungroup()
+
+```
+
+# Four adversity domains
+
+Seperately testing if use four adversity domains separately instead of combining them into one score yeild similar results. 
+
+```{r four-domain-model}
+domain_list <- list()
+result_number <- 1
+
+for (selected_outcome in outcome_ids) {
+  for (cesi_variable in cesi_variables) {
+    model_data <- health_data %>%
+      filter(outcome_id == selected_outcome) %>%
+      transmute(
+        state = factor(state),
+        health = outcome_value,
+        cesi = .data[[cesi_variable]],
+        socioeconomic = socioeconomic_z,
+        material_hardship = material_hardship_z,
+        healthcare_access = healthcare_access_z,
+        preventive_resources = preventive_resources_z,
+        population_density = log_population_density,
+        rurality = rural_urban_code,
+        age = county_age,
+        minority = percent_minority) %>%
+      drop_na() %>% #include counties with all four domains and covariates
+      mutate(across(
+        c(
+          health, cesi, socioeconomic, material_hardship,
+          healthcare_access, preventive_resources,
+          population_density, rurality, age, minority),
+        ~ as.numeric(scale(.x))))
+
+# Model the four adversity domains separately
+    model <- lmerTest::lmer(
+      health ~ cesi + socioeconomic + material_hardship +
+        healthcare_access + preventive_resources + population_density +
+        rurality + age + minority + (1 | state),
+      data = model_data,
+      REML = FALSE)
+
+    coefficient <- coef(summary(model))["cesi", ]
+
+    domain_list[[result_number]] <- tibble(
+      outcome_id = selected_outcome,
+      cesi_measure = cesi_variable,
+      beta = coefficient[1],
+      standard_error = coefficient[2],
+      p = coefficient[5],
+      n = nrow(model_data),
+      n_states = n_distinct(model_data$state))
+
+    result_number <- result_number + 1
+  }
+}
+
+# Adjust for p values
+four_domain_results <- bind_rows(domain_list) %>%
+  group_by(cesi_measure) %>%
+  mutate(p_holm = p.adjust(p, method = "holm")) %>%
+  ungroup()
+
+```
+
+# CESI by adversity interactions
+
+These models test whether the CESI association changes across levels of county adversity.
+
+```{r interaction-models}
+interaction_list <- list()
+result_number <- 1
+
+for (selected_outcome in outcome_ids) {
+  for (cesi_variable in cesi_variables) {
+    model_data <- health_data %>%
+      filter(outcome_id == selected_outcome) %>%
+      transmute(
+        state = factor(state),
+        health = outcome_value,
+        cesi = .data[[cesi_variable]],
+        adversity = adversity_domain_balanced,
+        population_density = log_population_density,
+        rurality = rural_urban_code,
+        age = county_age,
+        minority = percent_minority) %>%
+      drop_na() %>%
+      mutate(across(
+        c(health, cesi, adversity, population_density, rurality, age, minority),
+        ~ as.numeric(scale(.x))))
+
+# Include both main effects with their interaction and retain state clustering.
+    model <- lmerTest::lmer(
+      health ~ cesi * adversity + population_density + rurality + age +
+        minority + (1 | state),
+      data = model_data,
+      REML = FALSE)
+
+    coefficient <- coef(summary(model))["cesi:adversity", ]
+
+    interaction_list[[result_number]] <- tibble(
+      outcome_id = selected_outcome,
+      cesi_measure = cesi_variable,
+      beta = coefficient[1],
+      standard_error = coefficient[2],
+      p = coefficient[5],
+      n = nrow(model_data),
+      n_states = n_distinct(model_data$state))
+
+    result_number <- result_number + 1
+  }
+}
+
+# Adjust for p values
+interaction_results <- bind_rows(interaction_list) %>%
+  group_by(cesi_measure) %>%
+  mutate(p_holm = p.adjust(p, method = "holm")) %>%
+  ungroup()
+
+```
+
+# Export
+
+```{r export}
+# Add labels
+correlation_results <- correlation_results %>%
+  left_join(outcome_information, by = "outcome_id")
+
+geographic_results <- geographic_results %>%
+  left_join(outcome_information, by = "outcome_id")
+
+within_between_results <- within_between_results %>%
+  left_join(outcome_information, by = "outcome_id")
+
+joint_results <- joint_results %>%
+  left_join(outcome_information, by = "outcome_id")
+
+four_domain_results <- four_domain_results %>%
+  left_join(outcome_information, by = "outcome_id")
+
+interaction_results <- interaction_results %>%
+  left_join(outcome_information, by = "outcome_id")
+
+# Export
+output_dir <- "output/sensitivity_analyses"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+write_csv(correlation_results, file.path(output_dir, "correlations.csv"))
+write_csv(geographic_results, file.path(output_dir, "ols_and_state_fixed_effects.csv"))
+write_csv(within_between_results, file.path(output_dir, "within_between_state_results.csv"))
+write_csv(joint_results, file.path(output_dir, "joint_cesi_mlm_results.csv"))
+write_csv(four_domain_results, file.path(output_dir, "four_adversity_domain_results.csv"))
+write_csv(interaction_results, file.path(output_dir, "cesi_adversity_interactions.csv"))
+
+```

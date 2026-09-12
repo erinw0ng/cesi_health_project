@@ -1,0 +1,250 @@
+---
+title: "CESI and County Health Tables and Figures"
+author: "Erin Wang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: readable
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = FALSE,
+  error = FALSE)
+
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+```
+
+This script is for creating figures. Practice CESI is shown in blue, Meaning CESI in purple, and regression estimates in black.
+
+# Read results
+
+```{r read-results}
+primary_results <- read_csv(
+  "output/primary_health_models/primary_mlm_results.csv",
+  show_col_types = FALSE)
+
+health_data <- read_csv(
+  "data/derived/health_analysis/county_health_analysis_long.csv",
+  col_types = cols(county_fips = col_character()),
+  show_col_types = FALSE)
+
+within_between_results <- read_csv(
+  "output/sensitivity_analyses/within_between_state_results.csv",
+  show_col_types = FALSE)
+
+# File paths
+output_dir <- "output/tables_and_figures"
+figure_dir <- file.path(output_dir, "figures")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+```
+
+# Outcome categories
+
+```{r categories}
+outcome_categories <- primary_results %>%
+  distinct(outcome) %>%
+  mutate(
+    main_category = case_when(
+      outcome %in% c(
+        "Alcohol-Impaired Driving Deaths", "Firearm Fatalities",
+        "Homicide Mortality", "Injury Deaths",
+        "Motor Vehicle Crash Deaths", "HIV Prevalence",
+        "Sexually Transmitted Infections", "Low Birth Weight",
+        "Teen Births", "Child Mortality", "Infant Mortality",
+        "Life Expectancy", "Premature Death",
+        "Premature Age-Adjusted Mortality", "Binge Drinking",
+        "Current Cigarette Smoking", "Physical Inactivity",
+        "Short Sleep Duration", "Suicide Mortality",
+        "Drug Overdose Deaths") ~ "Behavioral Risks",
+      outcome %in% c(
+        "Hearing Disability", "Independent Living Disability",
+        "Mobility Disability", "Self-care Disability",
+        "Vision Disability", "Cognitive Disability", "Any Disability",
+        "Depression", "Frequent Mental Distress",
+        "Lack of Social/Emotional Support", "Social Isolation",
+        "General Health", "Frequent Physical Distress") ~
+        "Subjective Wellbeing",
+      TRUE ~ "Chronic Health"),
+    subcategory = case_when(
+      outcome %in% c(
+        "Alcohol-Impaired Driving Deaths", "Firearm Fatalities",
+        "Homicide Mortality", "Injury Deaths",
+        "Motor Vehicle Crash Deaths") ~ "Injury and Violence Mortality",
+      outcome %in% c(
+        "HIV Prevalence", "Sexually Transmitted Infections",
+        "Low Birth Weight", "Teen Births") ~
+        "Sexual and Reproductive Risks",
+      outcome %in% c(
+        "Child Mortality", "Infant Mortality", "Life Expectancy",
+        "Premature Death", "Premature Age-Adjusted Mortality") ~
+        "Premature Deaths and Reduced Longevity",
+      outcome %in% c(
+        "Binge Drinking", "Current Cigarette Smoking",
+        "Physical Inactivity", "Short Sleep Duration") ~
+        "Health-Risk Behaviors",
+      outcome %in% c("Suicide Mortality", "Drug Overdose Deaths") ~
+        "Behavioral-Health Mortality",
+      outcome %in% c(
+        "Hearing Disability", "Independent Living Disability",
+        "Mobility Disability", "Self-care Disability",
+        "Vision Disability", "Cognitive Disability", "Any Disability") ~
+        "Disability",
+      outcome %in% c("Depression", "Frequent Mental Distress") ~
+        "Mental Health",
+      outcome %in% c(
+        "Lack of Social/Emotional Support", "Social Isolation") ~
+        "Social Connection and Support",
+      outcome %in% c("General Health", "Frequent Physical Distress") ~
+        "Subjective Health",
+      outcome == "All Teeth Lost" ~ "Oral Health",
+      TRUE ~ "Chronic Conditions"),
+    display_outcome = if_else(
+      outcome == "General Health",
+      "Poor General Health", # Rename for clarity
+      outcome))
+
+```
+
+# Presentation table
+
+Stars are based on Holm-adjusted p values: `* p < .05`, `** p < .01`, and `*** p < .001`.
+
+```{r presentation-table}
+# Apply significance stars to Holm-adjusted, rather than raw, p values.
+presentation_table <- primary_results %>%
+  mutate(
+    stars = case_when(
+      p_holm < .001 ~ "***",
+      p_holm < .01 ~ "**",
+      p_holm < .05 ~ "*",
+      TRUE ~ ""),
+    coefficient = paste0(sprintf("%.2f", beta), stars)) %>%
+  select(outcome, cesi_measure, model, coefficient) %>%
+  pivot_wider(
+    names_from = c(cesi_measure, model),
+    values_from = coefficient,
+    names_glue = "{cesi_measure} {model}") %>%
+  left_join(outcome_categories, by = "outcome") %>%
+  arrange(
+    factor(
+      main_category,
+      levels = c("Behavioral Risks", "Subjective Wellbeing", "Chronic Health")),
+    subcategory,
+    display_outcome) %>%
+  select(
+    `Main Category` = main_category,
+    `Subcategory` = subcategory,
+    `Outcome` = display_outcome,
+    `Practice MLM-M1` = `Practice CESI MLM-M1`,
+    `Practice MLM-M2` = `Practice CESI MLM-M2`,
+    `Meaning MLM-M1` = `Meaning CESI MLM-M1`,
+    `Meaning MLM-M2` = `Meaning CESI MLM-M2`)
+presentation_table
+
+write_csv(presentation_table, file.path(output_dir, "primary_mlm_presentation_table.csv"))
+
+```
+
+# Relationship between the two CESI measures
+
+```{r cesi-correlation, fig.width=7, fig.height=6}
+cesi_plot_data <- health_data %>%
+  distinct(county_fips, practice_cesi, meaning_cesi) %>%
+  drop_na(practice_cesi, meaning_cesi)
+
+cesi_correlation <- cor.test(
+  cesi_plot_data$practice_cesi,
+  cesi_plot_data$meaning_cesi)
+
+cesi_correlation_results <- tibble(
+  n = nrow(cesi_plot_data),
+  r = unname(cesi_correlation$estimate),
+  p = cesi_correlation$p.value)
+
+# Plot
+cesi_plot <- ggplot(
+  cesi_plot_data,
+  aes(x = practice_cesi, y = meaning_cesi)) +
+  geom_point(color = "#118AB2", alpha = .45, size = 1.3) +
+  geom_smooth(method = "lm", color = "black", fill = "grey80") +
+  annotate(
+    "text",
+    x = -Inf,
+    y = Inf,
+    hjust = -.1,
+    vjust = 1.4,
+    label = sprintf(
+      "n = %s, r = %.2f",
+      nrow(cesi_plot_data),
+      unname(cesi_correlation$estimate))) +
+  labs(
+    x = "Practice-based CESI",
+    y = "Meaning-based CESI") +
+  theme_classic(base_size = 12)
+cesi_plot
+
+ggsave(file.path(figure_dir, "practice_meaning_cesi_correlation.png"), cesi_plot, width = 7, height = 6, dpi = 300)
+
+write_csv(cesi_correlation_results, file.path(output_dir, "practice_meaning_cesi_correlation.csv"))
+
+```
+
+# Figures for M2
+
+```{r coefficient-figures, fig.width=9, fig.height=12}
+coefficient_data <- primary_results %>%
+  filter(model == "MLM-M2") %>%
+  mutate(
+    ci_low = beta - 1.96 * standard_error,
+    ci_high = beta + 1.96 * standard_error) %>%
+  left_join(outcome_categories, by = "outcome")
+
+ # Plot
+practice_plot <- coefficient_data %>%
+  filter(cesi_measure == "Practice CESI") %>%
+  ggplot(aes(x = beta, y = reorder(display_outcome, beta))) +
+  geom_vline(xintercept = 0, color = "grey70") +
+  geom_errorbar(
+    aes(xmin = ci_low, xmax = ci_high),
+    width = 0,
+    orientation = "y") +
+  geom_point(color = "#118AB2", size = 2) +
+  facet_grid(main_category ~ ., scales = "free_y", space = "free_y") +
+  labs(x = "Standardized coefficient", y = NULL) +
+  theme_classic(base_size = 11)
+
+meaning_plot <- coefficient_data %>%
+  filter(cesi_measure == "Meaning CESI") %>%
+  ggplot(aes(x = beta, y = reorder(display_outcome, beta))) +
+  geom_vline(xintercept = 0, color = "grey70") +
+  geom_errorbar(
+    aes(xmin = ci_low, xmax = ci_high),
+    width = 0,
+    orientation = "y") +
+  geom_point(color = "#6A4C93", size = 2) +
+  facet_grid(main_category ~ ., scales = "free_y", space = "free_y") +
+  labs(x = "Standardized coefficient", y = NULL) +
+  theme_classic(base_size = 11)
+
+practice_plot
+meaning_plot
+
+ggsave(file.path(figure_dir, "practice_cesi_primary_coefficients.png"), practice_plot, width = 9, height = 12, dpi = 300)
+
+ggsave(file.path(figure_dir, "meaning_cesi_primary_coefficients.png"), meaning_plot, width = 9, height = 12, dpi = 300)
+
+```

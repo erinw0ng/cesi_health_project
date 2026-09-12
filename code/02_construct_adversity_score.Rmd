@@ -1,0 +1,323 @@
+---
+title: "Construct County Adversity Score"
+author: "Erin Wang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: readable
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = FALSE,
+  error = FALSE)
+
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+```
+
+# File paths
+
+```{r paths}
+output_dir <- "data/derived/adversity_index"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+```
+
+# Socioeconomic disadvantage
+
+The two ACS indicators are low household income and low educational attainment.
+
+```{r acs}
+# Reverse the income and education measures so higher values consistently mean greater adversity; log income - right-skewed
+acs <- read_csv(
+  "data/raw/acs_2022_5year/acs2022_5year_county_income_education.csv",
+  col_types = cols(county_fips = col_character()),
+  show_col_types = FALSE) %>%
+  transmute(
+    county_fips = str_pad(county_fips, 5, pad = "0"),
+    low_income = -log(replace(
+      median_household_income_2022,
+      median_household_income_2022 <= 0,
+      NA_real_)),
+    low_education = 100 - bachelors_or_higher_pct)
+
+# A blank result confirms one ACS row per county.
+acs %>%
+  count(county_fips) %>%
+  filter(n > 1)
+
+```
+
+# Material hardship
+
+There are five age-adjusted PLACES measures included: food insecurity, use of food stamps,
+housing insecurity, transportation barriers, and threat of utility shutoff.
+
+```{r places}
+# Read in data
+places <- read_csv(
+  "data/raw/cdc_places_2024/PLACES__Local_Data_for_Better_Health,_County_Data_2024_release_20260710.csv",
+  col_types = cols(
+    .default = col_character(),
+    LocationID = col_character(),
+    Data_Value = col_character()),
+  show_col_types = FALSE) %>%
+  filter(
+    Data_Value_Type == "Age-adjusted prevalence",
+    MeasureId %in% c(
+      "FOODINSECU", "FOODSTAMP", "HOUSINSECU", "LACKTRPT", "SHUTUTILITY"),
+    StateAbbr != "US") %>%
+  transmute(
+    county_fips = str_pad(LocationID, 5, pad = "0"),
+    measure_id = MeasureId,
+    value = parse_number(Data_Value)) %>%
+  distinct(county_fips, measure_id, .keep_all = TRUE) %>%
+  pivot_wider(names_from = measure_id, values_from = value) %>%
+  rename(
+    food_insecurity = FOODINSECU,
+    food_stamps = FOODSTAMP,
+    housing_insecurity = HOUSINSECU,
+    transportation_barriers = LACKTRPT,
+    utility_threat = SHUTUTILITY)
+
+# Check duplicates
+places %>%
+  count(county_fips) %>%
+  filter(n > 1)
+
+```
+
+# Healthcare access and preventive resources
+
+```{r county-health-rankings}
+# Read in data
+chr_2025 <- read_csv(
+  "data/raw/county_health_rankings_2025_2026/analytic_data2025_v3.csv",
+  show_col_types = FALSE) %>%
+  mutate(
+    county_fips = as.character(`5-digit FIPS Code`),
+    state = `State Abbreviation`,
+    county = Name) %>%
+  filter(
+    str_detect(county_fips, "^[0-9]{5}$"),
+    state != "US",
+    !is.na(county),
+    county != "United States") %>%
+  transmute(
+    county_fips,
+    state,
+    county,
+    flu_2025 = parse_number(as.character(`Flu Vaccinations raw value`)),
+    exercise_2025 = parse_number(as.character(`Access to Exercise Opportunities raw value`)),
+    food_environment_2025 = parse_number(as.character(`Food Environment Index raw value`)),
+    primary_care_2025 = parse_number(as.character(`Primary Care Physicians raw value`)),
+    mental_health_2025 = parse_number(as.character(`Mental Health Providers raw value`)),
+    dentists_2025 = parse_number(as.character(`Dentists raw value`)),
+    mammography_2025 = parse_number(as.character(`Mammography Screening raw value`)),
+    uninsured_2025 = parse_number(as.character(`Uninsured raw value`)),
+    life_expectancy = parse_number(as.character(`Life Expectancy raw value`)))
+
+# Read the supplement data
+chr_2026 <- read_csv(
+  "data/raw/county_health_rankings_2025_2026/analytic_supplement_20260325.csv",
+  col_types = cols(.default = col_character()),
+  show_col_types = FALSE) %>%
+  mutate(county_fips = str_pad(fipscode, 5, pad = "0")) %>%
+  filter(str_detect(county_fips, "^[0-9]{5}$")) %>%
+  transmute(
+    county_fips,
+    flu_2026 = parse_number(v155_rawvalue),
+    food_environment_2026 = parse_number(v133_rawvalue),
+    primary_care_2026 = parse_number(v004_rawvalue),
+    mental_health_2026 = parse_number(v062_rawvalue),
+    dentists_2026 = parse_number(v088_rawvalue),
+    mammography_2026 = parse_number(v050_rawvalue),
+    uninsured_2026 = parse_number(v085_rawvalue))
+
+# Reverse code so every measure points toward adversity
+chr <- chr_2025 %>%
+  full_join(chr_2026, by = "county_fips") %>%
+  transmute(
+    county_fips,
+    state,
+    county,
+    low_flu_vaccination = -coalesce(flu_2026, flu_2025),
+    low_exercise_access = -exercise_2025,
+    poor_food_environment =
+      -coalesce(food_environment_2026, food_environment_2025),
+    few_primary_care_physicians =
+      -log1p(coalesce(primary_care_2026, primary_care_2025) * 100000),
+    few_mental_health_providers =
+      -log1p(coalesce(mental_health_2026, mental_health_2025) * 100000),
+    few_dentists =
+      -log1p(coalesce(dentists_2026, dentists_2025) * 100000),
+    low_mammography_screening =
+      -coalesce(mammography_2026, mammography_2025),
+    uninsured = coalesce(uninsured_2026, uninsured_2025),
+    life_expectancy)
+
+# Check duplicates
+chr %>%
+  count(county_fips) %>%
+  filter(n > 1)
+
+```
+
+# Combine indicators
+
+```{r combine}
+# Merge
+adversity_data <- chr %>%
+  full_join(acs, by = "county_fips") %>%
+  full_join(places, by = "county_fips") %>%
+  filter(
+    str_detect(county_fips, "^[0-9]{5}$"),
+    state != "US",
+    !is.na(county),
+    str_trim(county) != "",
+    str_to_lower(str_trim(county)) != "united states") %>%
+  distinct(county_fips, .keep_all = TRUE)
+
+adversity_indicators <- c(
+  "low_income",
+  "low_education",
+  "food_insecurity",
+  "food_stamps",
+  "housing_insecurity",
+  "transportation_barriers",
+  "utility_threat",
+  "few_primary_care_physicians",
+  "few_mental_health_providers",
+  "few_dentists",
+  "uninsured",
+  "low_flu_vaccination",
+  "low_exercise_access",
+  "poor_food_environment",
+  "low_mammography_screening")
+
+# Check missingness
+indicator_missingness <- adversity_data %>%
+  summarise(across(all_of(adversity_indicators), ~ sum(is.na(.x)))) %>%
+  pivot_longer(
+    everything(),
+    names_to = "indicator",
+    values_to = "n_missing") %>%
+  mutate(percent_missing = 100 * n_missing / nrow(adversity_data))
+indicator_missingness
+
+adversity_standardized <- adversity_data
+
+# Winsorize each indicator
+for (variable in adversity_indicators) {
+  limits <- quantile(
+    adversity_standardized[[variable]],
+    c(.01, .99),
+    na.rm = TRUE)
+
+  adversity_standardized[[variable]] <- pmin(
+    pmax(adversity_standardized[[variable]], limits[1]),
+    limits[2])
+
+  adversity_standardized[[variable]] <- as.numeric(
+    scale(adversity_standardized[[variable]]))
+}
+
+```
+
+# Construct the adversity score
+
+A county must have all 15 indicators. Indicators receive equal weight within
+each domain, and the four standardized domains receive equal weight in the
+overall score.
+
+```{r adversity-score}
+adversity_scores <- adversity_standardized %>%
+  drop_na(all_of(adversity_indicators)) %>%
+  transmute(
+    county_fips,
+    state,
+    county,
+    socioeconomic = rowMeans(pick(low_income, low_education)),
+    material_hardship = rowMeans(pick(
+      food_insecurity,
+      food_stamps,
+      housing_insecurity,
+      transportation_barriers,
+      utility_threat)),
+    healthcare_access = rowMeans(pick(
+      few_primary_care_physicians,
+      few_mental_health_providers,
+      few_dentists,
+      uninsured)),
+    preventive_resources = rowMeans(pick(
+      low_flu_vaccination,
+      low_exercise_access,
+      poor_food_environment,
+      low_mammography_screening)),
+    life_expectancy) %>%
+  mutate(
+    socioeconomic_z = as.numeric(scale(socioeconomic)),
+    material_hardship_z = as.numeric(scale(material_hardship)),
+    healthcare_access_z = as.numeric(scale(healthcare_access)),
+    preventive_resources_z = as.numeric(scale(preventive_resources)),
+    adversity_domain_balanced = as.numeric(scale(rowMeans(pick(
+      socioeconomic_z,
+      material_hardship_z,
+      healthcare_access_z,
+      preventive_resources_z)))))
+
+cat("Counties with an adversity score:", nrow(adversity_scores), "\n")
+
+# Correctional check with Life expectancy as a quick sanity check
+adversity_scores %>%
+  summarise(
+    correlation_with_life_expectancy = cor(
+      adversity_domain_balanced,
+      life_expectancy,
+      use = "complete.obs"))
+
+```
+
+# Variable dictionary
+
+```{r dictionary}
+adversity_dictionary <- tribble(
+  ~domain, ~indicator, ~interpretation,
+  "Socioeconomic disadvantage", "low_income", "Lower median household income",
+  "Socioeconomic disadvantage", "low_education", "Lower percentage with a bachelor's degree",
+  "Material hardship", "food_insecurity", "Higher prevalence of food insecurity",
+  "Material hardship", "food_stamps", "Higher prevalence of food-stamp use",
+  "Material hardship", "housing_insecurity", "Higher prevalence of housing insecurity",
+  "Material hardship", "transportation_barriers", "Higher prevalence of transportation barriers",
+  "Material hardship", "utility_threat", "Higher prevalence of utility shutoff threat",
+  "Healthcare access", "few_primary_care_physicians", "Fewer primary-care physicians",
+  "Healthcare access", "few_mental_health_providers", "Fewer mental-health providers",
+  "Healthcare access", "few_dentists", "Fewer dentists",
+  "Healthcare access", "uninsured", "Higher uninsured percentage",
+  "Preventive resources", "low_flu_vaccination", "Lower flu-vaccination coverage",
+  "Preventive resources", "low_exercise_access", "Lower access to exercise opportunities",
+  "Preventive resources", "poor_food_environment", "Lower food-environment score",
+  "Preventive resources", "low_mammography_screening", "Lower mammography-screening coverage")
+adversity_dictionary
+
+```
+
+# Export
+
+```{r export}
+write_csv(adversity_scores, file.path(output_dir, "county_adversity_domain_balanced_scores.csv"))
+write_csv( adversity_dictionary, file.path(output_dir, "adversity_score_dictionary.csv"))
+write_csv(indicator_missingness, file.path(output_dir, "adversity_indicator_missingness.csv"))
+
+```
