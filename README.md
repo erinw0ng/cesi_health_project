@@ -2,10 +2,6 @@
 
 This folder contains the current analysis code and exported data for the county-level CESI and health project. 
 
-## Research question
-
-The project tests whether two dimensions of county-level social interdependence—Practice CESI and Meaning CESI—are associated with health related outcomes.
-
 ## Code order
 
 1. `00_construct_cesi_scores.Rmd`: creating Practice and Meaning CESI.

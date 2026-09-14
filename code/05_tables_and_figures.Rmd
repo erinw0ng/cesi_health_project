@@ -24,6 +24,7 @@ library(dplyr)
 library(tidyr)
 library(readr)
 library(ggplot2)
+library(usmap)
 ```
 
 This script is for creating figures. Practice CESI is shown in blue, Meaning CESI in purple, and regression estimates in black.
@@ -44,11 +45,18 @@ within_between_results <- read_csv(
   "output/sensitivity_analyses/within_between_state_results.csv",
   show_col_types = FALSE)
 
+county_cesi_scores <- read_csv(
+  "data/derived/cesi_scores/county_cesi_scores.csv",
+  col_types = cols(county_fips = col_character()),
+  show_col_types = FALSE)
+
 # File paths
 output_dir <- "output/tables_and_figures"
 figure_dir <- file.path(output_dir, "figures")
+map_dir <- file.path(figure_dir, "maps")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(map_dir, recursive = TRUE, showWarnings = FALSE)
 
 ```
 
@@ -200,6 +208,82 @@ cesi_plot
 ggsave(file.path(figure_dir, "practice_meaning_cesi_correlation.png"), cesi_plot, width = 7, height = 6, dpi = 300)
 
 write_csv(cesi_correlation_results, file.path(output_dir, "practice_meaning_cesi_correlation.csv"))
+
+```
+
+# County maps of the two CESI measures
+
+- The Practice CESI map includes 3,100 counties. The Meaning CESI map includes 2,041 counties. 
+- Red: higher CESI; Blue: lower CESI; Gray: missing due to availability.
+- Note: the map for meaning-based CESI is different from Havalder et al (2024) Fig 3 because they used interpolated scores. Here, I used the observed scores from Twitter. 
+
+```{r cesi-maps, fig.width=12, fig.height=7}
+cesi_map_data <- county_cesi_scores %>%
+  transmute(
+    fips = sprintf("%05d", as.integer(county_fips)),
+    practice_cesi,
+    meaning_cesi)
+
+practice_limit <- quantile(abs(cesi_map_data$practice_cesi), .98, na.rm = TRUE) %>% unname()
+
+meaning_limit <- quantile(abs(cesi_map_data$meaning_cesi), .98, na.rm = TRUE) %>% unname()
+
+practice_map <- plot_usmap(
+  data = cesi_map_data,
+  values = "practice_cesi",
+  regions = "counties",
+  color = "gray40",
+  linewidth = .04) +
+  scale_fill_gradient2(
+    low = "#2E6FA0",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-practice_limit, practice_limit),
+    oob = scales::squish,
+    na.value = "grey") +
+  labs(
+    title = "County Practice-Based CESI",
+    fill = "Practice CESI") +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(face = "bold"))
+
+meaning_map <- plot_usmap(
+  data = cesi_map_data,
+  values = "meaning_cesi",
+  regions = "counties",
+  color = "gray40",
+  linewidth = .04) +
+  scale_fill_gradient2(
+    low = "#2E6FA0",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-meaning_limit, meaning_limit),
+    oob = scales::squish,
+    na.value = "grey80") +
+  labs(
+    title = "County Meaning-Based CESI",
+    fill = "Meaning CESI") +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(face = "bold"))
+
+practice_map
+meaning_map
+
+# Check the number of counties
+cesi_map_coverage <- cesi_map_data %>%
+  summarise(
+    practice_counties = sum(!is.na(practice_cesi)),
+    meaning_counties = sum(!is.na(meaning_cesi)))
+
+cesi_map_coverage
+
+ggsave(file.path(map_dir, "practice_cesi_county_map.png"), practice_map, width = 12, height = 7, dpi = 300, bg = "white")
+
+ggsave(file.path(map_dir, "meaning_cesi_county_map.png"), meaning_map, width = 12, height = 7, dpi = 300, bg = "white")
 
 ```
 
